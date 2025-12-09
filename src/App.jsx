@@ -9,31 +9,8 @@ import {
 import { 
   LineChart, Line, XAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer
 } from 'recharts';
-import { initializeApp } from 'firebase/app';
-import { 
-  getFirestore, collection, addDoc, onSnapshot, serverTimestamp 
-} from 'firebase/firestore';
-import { 
-  getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken 
-} from 'firebase/auth';
 
-// --- Firebase Init ---
-let app, auth, db;
-let appId = 'default-app-id';
-
-try {
-  if (typeof __firebase_config !== 'undefined') {
-    const firebaseConfig = JSON.parse(__firebase_config);
-    app = initializeApp(firebaseConfig);
-    auth = getAuth(app);
-    db = getFirestore(app);
-  }
-  if (typeof __app_id !== 'undefined') {
-    appId = __app_id;
-  }
-} catch (e) {
-  console.error("Firebase init error", e);
-}
+// 注意：已移除所有 Firebase 相關引用，改用 LocalStorage 儲存資料
 
 // ==========================================
 // 🎄 聖誕夜深色主題
@@ -52,7 +29,7 @@ const THEME = {
 };
 
 // ==========================================
-// 🎅 資料庫
+// 🎅 資料庫 (靜態內容)
 // ==========================================
 
 const MOODS = [
@@ -127,51 +104,24 @@ const CARD_DATABASE = [
 
 export default function ChristmasSocialWorkerApp() {
   // App State
-  const [user, setUser] = useState(null);
   const [nickname, setNickname] = useState('');
   const [tempNickname, setTempNickname] = useState('');
   const [screen, setScreen] = useState('login'); 
   const [selectedMood, setSelectedMood] = useState(null);
   const [currentCard, setCurrentCard] = useState(null);
   const [isFlipped, setIsFlipped] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [initError, setInitError] = useState(false);
-
+  
   // Styles
   const styles = THEME.colors;
 
-  // --- Initialization ---
+  // --- Initialization (Local Storage Check) ---
   useEffect(() => {
-    if (!auth) {
-      setInitError(true);
-      setLoading(false);
-      return;
+    // 檢查 LocalStorage 是否有舊的登入資訊
+    const storedNick = localStorage.getItem('sw_app_nickname');
+    if (storedNick) {
+      setNickname(storedNick);
+      setScreen('welcome');
     }
-
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (err) {
-        console.error("Auth error", err);
-        setInitError(true);
-      }
-    };
-    initAuth();
-
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      const storedNick = localStorage.getItem('sw_app_nickname');
-      if (storedNick) {
-        setNickname(storedNick);
-        setScreen('welcome');
-      }
-      setLoading(false);
-    });
-    return () => unsubscribe();
   }, []);
 
   // --- Shared Logic ---
@@ -184,7 +134,7 @@ export default function ChristmasSocialWorkerApp() {
     setScreen('welcome');
   };
 
-  const handleLogout = async () => {
+  const handleLogout = () => {
     setNickname('');
     setTempNickname('');
     localStorage.removeItem('sw_app_nickname');
@@ -199,16 +149,25 @@ export default function ChristmasSocialWorkerApp() {
     setIsFlipped(false);
     setTimeout(() => setIsFlipped(true), 100); 
     
-    if (user && selectedMood && db) {
-      addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'mood_logs_clean'), {
+    // Save to Local Storage instead of Firestore
+    if (selectedMood) {
+      const newLog = {
+        id: Date.now().toString(), // 簡單的 ID
         nickname: nickname,
-        userId: user.uid,
         moodLabel: selectedMood.label,
         moodScore: selectedMood.score,
         cardTitle: card.title,
         cardCategory: card.category,
-        timestamp: serverTimestamp()
-      }).catch(console.error);
+        timestamp: new Date().toISOString() // 儲存為 ISO 字串
+      };
+
+      try {
+        const existingLogs = JSON.parse(localStorage.getItem('sw_mood_logs') || '[]');
+        const updatedLogs = [...existingLogs, newLog];
+        localStorage.setItem('sw_mood_logs', JSON.stringify(updatedLogs));
+      } catch (e) {
+        console.error("Local storage save error", e);
+      }
     }
   };
 
@@ -470,24 +429,31 @@ export default function ChristmasSocialWorkerApp() {
 
   const WorkerHistoryScreen = () => {
     const [myLogs, setMyLogs] = useState([]);
+
     useEffect(() => {
-      if(!user || !db) return;
-      const q = collection(db, 'artifacts', appId, 'public', 'data', 'mood_logs_clean');
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        const logs = snapshot.docs.map(d => ({id:d.id, ...d.data(), timestamp: d.data().timestamp?.toDate() || new Date()}))
-          .filter(l => l.userId === user.uid)
-          .sort((a,b) => b.timestamp - a.timestamp);
-        setMyLogs(logs);
-      });
-      return () => unsubscribe();
-    }, [user]);
-    const myChartData = myLogs.slice(0, 15).reverse().map(l => ({date: l.timestamp.toLocaleDateString(undefined, {month:'numeric', day:'numeric'}), score: l.moodScore}));
+      // Load from Local Storage
+      try {
+        const storedLogs = JSON.parse(localStorage.getItem('sw_mood_logs') || '[]');
+        const userLogs = storedLogs
+          .filter(l => l.nickname === nickname)
+          .map(l => ({ ...l, timestamp: new Date(l.timestamp) })) // Convert ISO string back to Date
+          .sort((a, b) => b.timestamp - a.timestamp);
+        setMyLogs(userLogs);
+      } catch (e) {
+        console.error("Error loading logs", e);
+      }
+    }, [nickname]);
+
+    const myChartData = myLogs.slice(0, 15).reverse().map(l => ({
+      date: l.timestamp.toLocaleDateString(undefined, {month:'numeric', day:'numeric'}), 
+      score: l.moodScore
+    }));
 
     return (
       <div className={`min-h-screen ${styles.bg} flex flex-col p-6 font-serif-tc`}>
         <div className="max-w-4xl w-full mx-auto space-y-6">
           <div className="flex justify-between items-center mb-6 border-b border-[#334155] pb-4">
-            <h2 className={`text-xl font-bold ${styles.textMain} flex items-center gap-2`}><BookOpen className="w-5 h-5 text-[#D97706]" /> 覺察足跡</h2>
+            <h2 className={`text-xl font-bold ${styles.textMain} flex items-center gap-2`}><BookOpen className="w-5 h-5 text-[#D97706]" /> 覺察足跡 (本機紀錄)</h2>
             <div className="flex gap-2">
                 <button onClick={() => setScreen('welcome')} className={`${styles.textSub} hover:text-white text-xs`}>返回</button>
             </div>
@@ -501,6 +467,11 @@ export default function ChristmasSocialWorkerApp() {
                   <Line type="monotone" dataKey="score" stroke="#D97706" strokeWidth={2} dot={{ fill: "#162032", stroke: "#D97706", strokeWidth: 2, r: 4 }} />
                 </LineChart>
               </ResponsiveContainer>
+            </div>
+          )}
+          {myLogs.length === 0 && (
+            <div className="text-center text-slate-500 py-10">
+              尚未有紀錄，快去抽張卡片吧！
             </div>
           )}
           <div className="space-y-3">
@@ -518,9 +489,6 @@ export default function ChristmasSocialWorkerApp() {
       </div>
     );
   };
-
-  if (initError) return <div className="min-h-screen flex items-center justify-center bg-[#0B1120] text-slate-500 p-8 text-center text-sm font-light">連線中斷，請稍後再試</div>;
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-[#0B1120] text-[#D97706] font-bold animate-pulse text-sm tracking-widest">LOADING...</div>;
 
   return (
     <>
