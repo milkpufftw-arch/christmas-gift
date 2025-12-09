@@ -4,7 +4,7 @@ import {
   Sparkles, X, RefreshCw, BookOpen, History, 
   LogOut, Meh, Home, Cloud, Lock, Key,
   Gift, Snowflake, Bell, TreePine, Star, Moon, Compass,
-  HeartCrack, Timer
+  HeartCrack, Timer, WifiOff
 } from 'lucide-react';
 import { 
   LineChart, Line, XAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, AreaChart, Area
@@ -20,6 +20,7 @@ import {
 // --- Firebase Init ---
 let app, auth, db;
 let appId = 'default-app-id';
+let firebaseInitSuccess = false;
 
 try {
   if (typeof __firebase_config !== 'undefined') {
@@ -27,7 +28,11 @@ try {
     app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = getFirestore(app);
+    firebaseInitSuccess = true;
+  } else {
+    console.warn("No Firebase config found. App will run in Offline Demo Mode.");
   }
+  
   if (typeof __app_id !== 'undefined') {
     appId = __app_id;
   }
@@ -131,6 +136,13 @@ const CARD_DATABASE = [
   { category: "北極星的指引", title: "愛的傳遞", message: "你給出的溫暖，會以意想不到的方式回到你身邊。", action: "傳一個感謝的訊息給一位同事或督導。" }
 ];
 
+// Mock data for offline mode
+const MOCK_LOGS = [
+  { id: '1', moodLabel: '平靜如雪', moodScore: 85, cardTitle: '穩如雪橇', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2) },
+  { id: '2', moodLabel: '忙著送禮', moodScore: 45, cardTitle: '卸下貨物', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24) },
+  { id: '3', moodLabel: '期待佳節', moodScore: 92, cardTitle: '燭光晚餐', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 48) },
+];
+
 export default function ChristmasSocialWorkerApp() {
   // App State
   const [user, setUser] = useState(null);
@@ -142,6 +154,7 @@ export default function ChristmasSocialWorkerApp() {
   const [isFlipped, setIsFlipped] = useState(false);
   const [loading, setLoading] = useState(true);
   const [initError, setInitError] = useState(false);
+  const [isDemo, setIsDemo] = useState(false); // New: Offline Demo Mode flag
 
   // Supervisor State
   const [supervisorTeam, setSupervisorTeam] = useState([]);
@@ -156,9 +169,24 @@ export default function ChristmasSocialWorkerApp() {
 
   // --- Initialization ---
   useEffect(() => {
-    if (!auth) {
-      setInitError(true);
+    // Check if we should enter demo mode (no auth available)
+    if (!firebaseInitSuccess || !auth) {
+      console.log("Running in Offline Demo Mode");
+      setIsDemo(true);
       setLoading(false);
+      
+      // Auto-login if nickname exists in local storage
+      const storedNick = localStorage.getItem('sw_app_nickname');
+      if (storedNick) {
+        setNickname(storedNick);
+        setUser({ uid: 'demo-user', isAnonymous: true });
+        setScreen('welcome');
+      }
+      
+      const storedTeam = localStorage.getItem('sw_supervisor_team');
+      if (storedTeam) {
+        try { setSupervisorTeam(JSON.parse(storedTeam)); } catch(e) { setSupervisorTeam([]); }
+      }
       return;
     }
 
@@ -171,7 +199,9 @@ export default function ChristmasSocialWorkerApp() {
         }
       } catch (err) {
         console.error("Auth error", err);
-        setInitError(true);
+        // Fallback to demo mode on auth failure
+        setIsDemo(true);
+        setLoading(false);
       }
     };
     initAuth();
@@ -228,7 +258,14 @@ export default function ChristmasSocialWorkerApp() {
   };
 
   useEffect(() => {
-    if (!user || !supervisorTarget || !db) return;
+    if (!user || !supervisorTarget) return;
+    
+    // Offline Mode Handling
+    if (isDemo || !db) {
+      setTargetLogs(MOCK_LOGS.map(log => ({...log, nickname: supervisorTarget})));
+      return;
+    }
+
     const q = collection(db, 'artifacts', appId, 'public', 'data', 'mood_logs_clean');
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const allData = snapshot.docs.map(doc => ({
@@ -237,7 +274,7 @@ export default function ChristmasSocialWorkerApp() {
       setTargetLogs(allData.filter(log => log.nickname === supervisorTarget).sort((a, b) => b.timestamp - a.timestamp));
     });
     return () => unsubscribe();
-  }, [user, supervisorTarget]);
+  }, [user, supervisorTarget, isDemo]);
 
   // --- Shared Logic ---
 
@@ -246,6 +283,11 @@ export default function ChristmasSocialWorkerApp() {
     if (!tempNickname.trim()) return;
     setNickname(tempNickname.trim());
     localStorage.setItem('sw_app_nickname', tempNickname.trim());
+    
+    if (isDemo) {
+      setUser({ uid: 'demo-user', isAnonymous: true });
+    }
+    
     setScreen('welcome');
   };
 
@@ -256,6 +298,8 @@ export default function ChristmasSocialWorkerApp() {
     setScreen('login');
     setSupervisorUnlocked(false);
     setPasswordInput('');
+    // Note: We don't sign out from Firebase to keep anonymous session if possible, 
+    // but clearing nickname effectively resets the user flow.
   };
 
   const drawCard = () => {
@@ -266,7 +310,8 @@ export default function ChristmasSocialWorkerApp() {
     setIsFlipped(false);
     setTimeout(() => setIsFlipped(true), 100); 
     
-    if (user && selectedMood && db) {
+    // Only try to save if not in demo mode
+    if (!isDemo && user && selectedMood && db) {
       addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'mood_logs_clean'), {
         nickname: nickname,
         userId: user.uid,
@@ -311,12 +356,22 @@ export default function ChristmasSocialWorkerApp() {
        ))}
     </div>
   );
+  
+  const DemoBadge = () => (
+    isDemo ? (
+      <div className="absolute top-0 left-0 w-full bg-yellow-600/20 text-yellow-500 text-[10px] text-center py-1 border-b border-yellow-500/20 z-50 flex items-center justify-center gap-2">
+        <WifiOff className="w-3 h-3" />
+        <span>離線演示模式 (Offline Demo) - 資料不會儲存到雲端</span>
+      </div>
+    ) : null
+  );
 
   // --- Screens ---
 
   const LoginScreen = () => (
     <div className={`min-h-screen ${styles.bgGradient} flex flex-col items-center justify-center p-6 relative overflow-hidden font-serif-tc`}>
       <SnowEffect />
+      <DemoBadge />
       
       <div className="absolute top-10 right-10 opacity-20">
         <Moon className="w-24 h-24 text-yellow-100" />
@@ -378,6 +433,7 @@ export default function ChristmasSocialWorkerApp() {
         return (
             <div className={`min-h-screen ${styles.bgGradient} flex flex-col items-center justify-center p-6 relative overflow-hidden font-serif-tc`}>
               <SnowEffect />
+              <DemoBadge />
               <div className="max-w-xs w-full relative z-10 animate-fade-in text-center">
                 <div className="mb-6 flex justify-center">
                     <div className="bg-[#162032] p-4 rounded-full border border-[#334155] shadow-lg">
@@ -404,7 +460,8 @@ export default function ChristmasSocialWorkerApp() {
 
     return (
     <div className={`min-h-screen ${styles.bg} font-serif-tc flex flex-col text-slate-200`}>
-      <div className="bg-[#162032] border-b border-[#334155] px-6 py-4 flex justify-between items-center shadow-lg relative z-20">
+      <DemoBadge />
+      <div className="bg-[#162032] border-b border-[#334155] px-6 py-4 flex justify-between items-center shadow-lg relative z-20 mt-4">
         <div className="flex items-center gap-3">
           <div className="bg-yellow-500/10 p-2 rounded-lg"><Bell className="w-5 h-5 text-yellow-500" /></div>
           <h1 className="text-lg font-bold tracking-wide text-slate-200">馴鹿指揮中心</h1>
@@ -521,6 +578,7 @@ export default function ChristmasSocialWorkerApp() {
   const WelcomeScreen = () => (
     <div className={`min-h-screen ${styles.bgGradient} flex flex-col items-center justify-center p-6 relative font-serif-tc`}>
       <SnowEffect />
+      <DemoBadge />
       <div className="absolute top-6 right-6 flex gap-3 z-10">
         <button onClick={() => setScreen('history')} className={`p-2.5 bg-[#162032] text-[#94A3B8] rounded-full hover:text-white hover:bg-[#334155] transition-all border border-[#334155]`} title="個人紀錄"><History className="w-4 h-4" /></button>
         <button onClick={handleLogout} className={`px-4 py-2 bg-[#162032] text-[#94A3B8] rounded-full hover:text-white hover:bg-[#334155] transition-all border border-[#334155] flex items-center gap-2 text-xs font-bold tracking-wider`} title="回到首頁">
@@ -554,6 +612,7 @@ export default function ChristmasSocialWorkerApp() {
   const CheckinScreen = () => (
     <div className={`min-h-screen ${styles.bgGradient} flex flex-col items-center justify-center p-4 font-serif-tc`}>
       <SnowEffect />
+      <DemoBadge />
       <div className="max-w-xl w-full relative z-10">
         <h2 className={`text-xl font-bold ${styles.textMain} mb-2 text-center text-shadow-sm`}>今晚的心情顏色？</h2>
         <p className={`${styles.textSub} mb-8 text-center text-sm font-light`}>誠實面對狀態，就是對自己最大的慈悲。</p>
@@ -578,6 +637,7 @@ export default function ChristmasSocialWorkerApp() {
   const DeckScreen = () => (
     <div className={`min-h-screen ${styles.bgGradient} flex flex-col items-center justify-center p-6 overflow-hidden relative font-serif-tc`}>
       <SnowEffect />
+      <DemoBadge />
       <div className="max-w-md w-full text-center space-y-8 z-10">
         <div className="animate-fade-in-up">
           <div className="inline-block px-3 py-1 rounded-full bg-[#334155]/80 backdrop-blur-sm border border-[#475569] text-[#94A3B8] text-[12px] tracking-widest uppercase mb-3">收到一則訊息</div>
@@ -632,6 +692,7 @@ export default function ChristmasSocialWorkerApp() {
     return (
     <div className={`min-h-screen ${styles.bg} flex flex-col items-center justify-center p-4 relative font-serif-tc`} key={currentCard?.title}>
       <SnowEffect />
+      <DemoBadge />
       <div className="absolute top-4 right-4 z-20">
          <button onClick={handleLogout} className="bg-[#162032]/80 backdrop-blur-sm px-4 py-2 rounded-full text-xs text-[#94A3B8] hover:text-white border border-[#334155] shadow-lg flex items-center gap-1 transition-all">
            <Home className="w-3 h-3" /> 
@@ -705,7 +766,12 @@ export default function ChristmasSocialWorkerApp() {
   const WorkerHistoryScreen = () => {
     const [myLogs, setMyLogs] = useState([]);
     useEffect(() => {
-      if(!user || !db) return;
+      // Offline Mode Handling
+      if (isDemo || !db || !user) {
+        // Show empty or mock data for user history in demo
+        return;
+      }
+      
       const q = collection(db, 'artifacts', appId, 'public', 'data', 'mood_logs_clean');
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const logs = snapshot.docs.map(d => ({id:d.id, ...d.data(), timestamp: d.data().timestamp?.toDate() || new Date()}))
@@ -714,19 +780,28 @@ export default function ChristmasSocialWorkerApp() {
         setMyLogs(logs);
       });
       return () => unsubscribe();
-    }, [user]);
+    }, [user, isDemo]);
     const myChartData = myLogs.slice(0, 15).reverse().map(l => ({date: l.timestamp.toLocaleDateString(undefined, {month:'numeric', day:'numeric'}), score: l.moodScore}));
 
     return (
       <div className={`min-h-screen ${styles.bg} flex flex-col p-6 font-serif-tc`}>
-        <div className="max-w-4xl w-full mx-auto space-y-6">
+        <DemoBadge />
+        <div className="max-w-4xl w-full mx-auto space-y-6 mt-4">
           <div className="flex justify-between items-center mb-6 border-b border-[#334155] pb-4">
             <h2 className={`text-xl font-bold ${styles.textMain} flex items-center gap-2`}><BookOpen className="w-5 h-5 text-[#D97706]" /> 覺察足跡</h2>
             <div className="flex gap-2">
                 <button onClick={() => setScreen('welcome')} className={`${styles.textSub} hover:text-white text-xs`}>返回</button>
             </div>
           </div>
-          {myLogs.length > 0 && (
+          
+          {isDemo && (
+             <div className="p-8 text-center text-[#94A3B8] border border-dashed border-[#334155] rounded-xl bg-[#162032]/30">
+               <WifiOff className="w-8 h-8 mx-auto mb-2 opacity-50" />
+               <p>離線模式下無法查看歷史紀錄</p>
+             </div>
+          )}
+
+          {!isDemo && myLogs.length > 0 && (
             <div className={`p-6 rounded-xl shadow-lg h-64 bg-[#162032] border border-[#334155]`}>
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={myChartData}>
@@ -753,7 +828,7 @@ export default function ChristmasSocialWorkerApp() {
     );
   };
 
-  if (initError) return <div className="min-h-screen flex items-center justify-center bg-[#0B1120] text-slate-500 p-8 text-center text-sm font-light">連線中斷，請稍後再試</div>;
+  if (initError && !isDemo) return <div className="min-h-screen flex items-center justify-center bg-[#0B1120] text-slate-500 p-8 text-center text-sm font-light">連線中斷，請稍後再試</div>;
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-[#0B1120] text-[#D97706] font-bold animate-pulse text-sm tracking-widest">LOADING...</div>;
 
   return (
