@@ -4,10 +4,10 @@ import {
   Sparkles, X, RefreshCw, BookOpen, History, 
   LogOut, Meh, Home, Cloud, Lock, Key,
   Gift, Snowflake, Bell, TreePine, Star, Moon, Compass,
-  HeartCrack, Timer, WifiOff
+  HeartCrack, Timer
 } from 'lucide-react';
 import { 
-  LineChart, Line, XAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, AreaChart, Area
+  LineChart, Line, XAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer
 } from 'recharts';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -20,7 +20,6 @@ import {
 // --- Firebase Init ---
 let app, auth, db;
 let appId = 'default-app-id';
-let firebaseInitSuccess = false;
 
 try {
   if (typeof __firebase_config !== 'undefined') {
@@ -28,11 +27,7 @@ try {
     app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = getFirestore(app);
-    firebaseInitSuccess = true;
-  } else {
-    console.warn("No Firebase config found. App will run in Offline Demo Mode.");
   }
-  
   if (typeof __app_id !== 'undefined') {
     appId = __app_id;
   }
@@ -41,13 +36,7 @@ try {
 }
 
 // ==========================================
-// 🔒 安全設定
-// ==========================================
-// 督導通行密碼 (您可以自行修改此處)
-const SUPERVISOR_PASSWORD = "2025";
-
-// ==========================================
-// 🎄 聖誕夜深色主題 (Silent Night Theme)
+// 🎄 聖誕夜深色主題
 // ==========================================
 
 const THEME = {
@@ -136,13 +125,6 @@ const CARD_DATABASE = [
   { category: "北極星的指引", title: "愛的傳遞", message: "你給出的溫暖，會以意想不到的方式回到你身邊。", action: "傳一個感謝的訊息給一位同事或督導。" }
 ];
 
-// Mock data for offline mode
-const MOCK_LOGS = [
-  { id: '1', moodLabel: '平靜如雪', moodScore: 85, cardTitle: '穩如雪橇', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2) },
-  { id: '2', moodLabel: '忙著送禮', moodScore: 45, cardTitle: '卸下貨物', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24) },
-  { id: '3', moodLabel: '期待佳節', moodScore: 92, cardTitle: '燭光晚餐', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 48) },
-];
-
 export default function ChristmasSocialWorkerApp() {
   // App State
   const [user, setUser] = useState(null);
@@ -154,39 +136,15 @@ export default function ChristmasSocialWorkerApp() {
   const [isFlipped, setIsFlipped] = useState(false);
   const [loading, setLoading] = useState(true);
   const [initError, setInitError] = useState(false);
-  const [isDemo, setIsDemo] = useState(false); // New: Offline Demo Mode flag
-
-  // Supervisor State
-  const [supervisorTeam, setSupervisorTeam] = useState([]);
-  const [supervisorTarget, setSupervisorTarget] = useState('');
-  const [targetLogs, setTargetLogs] = useState([]);
-  const [newMemberName, setNewMemberName] = useState('');
-  const [supervisorUnlocked, setSupervisorUnlocked] = useState(false);
-  const [passwordInput, setPasswordInput] = useState('');
 
   // Styles
   const styles = THEME.colors;
 
   // --- Initialization ---
   useEffect(() => {
-    // Check if we should enter demo mode (no auth available)
-    if (!firebaseInitSuccess || !auth) {
-      console.log("Running in Offline Demo Mode");
-      setIsDemo(true);
+    if (!auth) {
+      setInitError(true);
       setLoading(false);
-      
-      // Auto-login if nickname exists in local storage
-      const storedNick = localStorage.getItem('sw_app_nickname');
-      if (storedNick) {
-        setNickname(storedNick);
-        setUser({ uid: 'demo-user', isAnonymous: true });
-        setScreen('welcome');
-      }
-      
-      const storedTeam = localStorage.getItem('sw_supervisor_team');
-      if (storedTeam) {
-        try { setSupervisorTeam(JSON.parse(storedTeam)); } catch(e) { setSupervisorTeam([]); }
-      }
       return;
     }
 
@@ -199,9 +157,7 @@ export default function ChristmasSocialWorkerApp() {
         }
       } catch (err) {
         console.error("Auth error", err);
-        // Fallback to demo mode on auth failure
-        setIsDemo(true);
-        setLoading(false);
+        setInitError(true);
       }
     };
     initAuth();
@@ -213,68 +169,10 @@ export default function ChristmasSocialWorkerApp() {
         setNickname(storedNick);
         setScreen('welcome');
       }
-      const storedTeam = localStorage.getItem('sw_supervisor_team');
-      if (storedTeam) {
-        try { setSupervisorTeam(JSON.parse(storedTeam)); } catch(e) { setSupervisorTeam([]); }
-      }
       setLoading(false);
     });
     return () => unsubscribe();
   }, []);
-
-  // --- Supervisor Logic ---
-  
-  const verifyPassword = (e) => {
-    e.preventDefault();
-    if (passwordInput === SUPERVISOR_PASSWORD) {
-        setSupervisorUnlocked(true);
-    } else {
-        alert("密鑰錯誤，請重新輸入");
-        setPasswordInput('');
-    }
-  };
-
-  const addTeamMember = (e) => {
-    e.preventDefault();
-    if (!newMemberName.trim()) return;
-    const updatedTeam = [...supervisorTeam, newMemberName.trim()];
-    setSupervisorTeam(updatedTeam);
-    localStorage.setItem('sw_supervisor_team', JSON.stringify(updatedTeam));
-    setNewMemberName('');
-  };
-
-  const removeTeamMember = (name) => {
-    const updatedTeam = supervisorTeam.filter(m => m !== name);
-    setSupervisorTeam(updatedTeam);
-    localStorage.setItem('sw_supervisor_team', JSON.stringify(updatedTeam));
-    if (supervisorTarget === name) {
-      setSupervisorTarget('');
-      setTargetLogs([]);
-    }
-  };
-
-  const selectMember = (name) => {
-    setSupervisorTarget(name);
-  };
-
-  useEffect(() => {
-    if (!user || !supervisorTarget) return;
-    
-    // Offline Mode Handling
-    if (isDemo || !db) {
-      setTargetLogs(MOCK_LOGS.map(log => ({...log, nickname: supervisorTarget})));
-      return;
-    }
-
-    const q = collection(db, 'artifacts', appId, 'public', 'data', 'mood_logs_clean');
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const allData = snapshot.docs.map(doc => ({
-        id: doc.id, ...doc.data(), timestamp: doc.data().timestamp ? doc.data().timestamp.toDate() : new Date()
-      }));
-      setTargetLogs(allData.filter(log => log.nickname === supervisorTarget).sort((a, b) => b.timestamp - a.timestamp));
-    });
-    return () => unsubscribe();
-  }, [user, supervisorTarget, isDemo]);
 
   // --- Shared Logic ---
 
@@ -283,11 +181,6 @@ export default function ChristmasSocialWorkerApp() {
     if (!tempNickname.trim()) return;
     setNickname(tempNickname.trim());
     localStorage.setItem('sw_app_nickname', tempNickname.trim());
-    
-    if (isDemo) {
-      setUser({ uid: 'demo-user', isAnonymous: true });
-    }
-    
     setScreen('welcome');
   };
 
@@ -296,10 +189,6 @@ export default function ChristmasSocialWorkerApp() {
     setTempNickname('');
     localStorage.removeItem('sw_app_nickname');
     setScreen('login');
-    setSupervisorUnlocked(false);
-    setPasswordInput('');
-    // Note: We don't sign out from Firebase to keep anonymous session if possible, 
-    // but clearing nickname effectively resets the user flow.
   };
 
   const drawCard = () => {
@@ -310,8 +199,7 @@ export default function ChristmasSocialWorkerApp() {
     setIsFlipped(false);
     setTimeout(() => setIsFlipped(true), 100); 
     
-    // Only try to save if not in demo mode
-    if (!isDemo && user && selectedMood && db) {
+    if (user && selectedMood && db) {
       addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'mood_logs_clean'), {
         nickname: nickname,
         userId: user.uid,
@@ -323,14 +211,6 @@ export default function ChristmasSocialWorkerApp() {
       }).catch(console.error);
     }
   };
-
-  const chartData = useMemo(() => {
-    return [...targetLogs].reverse().map(l => ({
-      date: l.timestamp.toLocaleDateString(undefined, {month:'numeric', day:'numeric'}),
-      score: l.moodScore,
-      mood: l.moodLabel
-    })).slice(-20);
-  }, [targetLogs]);
 
   // --- Visual Components ---
 
@@ -356,22 +236,12 @@ export default function ChristmasSocialWorkerApp() {
        ))}
     </div>
   );
-  
-  const DemoBadge = () => (
-    isDemo ? (
-      <div className="absolute top-0 left-0 w-full bg-yellow-600/20 text-yellow-500 text-[10px] text-center py-1 border-b border-yellow-500/20 z-50 flex items-center justify-center gap-2">
-        <WifiOff className="w-3 h-3" />
-        <span>離線演示模式 (Offline Demo) - 資料不會儲存到雲端</span>
-      </div>
-    ) : null
-  );
 
   // --- Screens ---
 
   const LoginScreen = () => (
     <div className={`min-h-screen ${styles.bgGradient} flex flex-col items-center justify-center p-6 relative overflow-hidden font-serif-tc`}>
       <SnowEffect />
-      <DemoBadge />
       
       <div className="absolute top-10 right-10 opacity-20">
         <Moon className="w-24 h-24 text-yellow-100" />
@@ -410,175 +280,14 @@ export default function ChristmasSocialWorkerApp() {
               開啟大門
             </button>
           </form>
-
-          <div className="mt-8 text-center pt-4 border-t border-[#334155]/50">
-            <button 
-              onClick={() => setScreen('supervisor')}
-              className={`text-xs text-[#94A3B8] hover:text-[#FCD34D] flex items-center justify-center gap-2 mx-auto transition-all opacity-80 hover:opacity-100`}
-            >
-              <div className="relative">
-                 <Cloud className="w-4 h-4" />
-                 <div className="absolute -top-1 -right-1 w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></div>
-              </div>
-              督導煙囪入口
-            </button>
-          </div>
         </div>
       </div>
     </div>
   );
 
-  const SupervisorScreen = () => {
-    if (!supervisorUnlocked) {
-        return (
-            <div className={`min-h-screen ${styles.bgGradient} flex flex-col items-center justify-center p-6 relative overflow-hidden font-serif-tc`}>
-              <SnowEffect />
-              <DemoBadge />
-              <div className="max-w-xs w-full relative z-10 animate-fade-in text-center">
-                <div className="mb-6 flex justify-center">
-                    <div className="bg-[#162032] p-4 rounded-full border border-[#334155] shadow-lg">
-                        <Lock className="w-8 h-8 text-[#D97706]" />
-                    </div>
-                </div>
-                <h2 className={`text-xl font-bold ${styles.textMain} mb-2`}>督導驗證</h2>
-                <p className={`${styles.textSub} text-xs mb-6`}>請輸入通行密碼以進入指揮中心</p>
-                <form onSubmit={verifyPassword} className="space-y-4">
-                    <input 
-                        type="password" 
-                        value={passwordInput}
-                        onChange={(e) => setPasswordInput(e.target.value)}
-                        placeholder="通行密碼"
-                        className={`w-full bg-[#0B1120]/50 border border-[#334155] rounded-xl p-3 text-center ${styles.textMain} focus:border-[#D97706] outline-none tracking-widest`}
-                    />
-                    <button type="submit" className={`w-full py-3 rounded-xl font-bold text-sm ${styles.button}`}>解鎖</button>
-                </form>
-                <button onClick={() => setScreen('login')} className="mt-6 text-xs text-[#94A3B8] hover:text-white underline">返回登入頁</button>
-              </div>
-            </div>
-        );
-    }
-
-    return (
-    <div className={`min-h-screen ${styles.bg} font-serif-tc flex flex-col text-slate-200`}>
-      <DemoBadge />
-      <div className="bg-[#162032] border-b border-[#334155] px-6 py-4 flex justify-between items-center shadow-lg relative z-20 mt-4">
-        <div className="flex items-center gap-3">
-          <div className="bg-yellow-500/10 p-2 rounded-lg"><Bell className="w-5 h-5 text-yellow-500" /></div>
-          <h1 className="text-lg font-bold tracking-wide text-slate-200">馴鹿指揮中心</h1>
-        </div>
-        <button onClick={handleLogout} className="text-slate-400 hover:text-white text-xs flex items-center gap-2 border border-slate-600 px-3 py-1.5 rounded-full transition-colors hover:bg-slate-700">
-          <Home className="w-3 h-3" /> 回首頁
-        </button>
-      </div>
-
-      <div className="flex flex-1 overflow-hidden flex-col md:flex-row">
-        {/* Sidebar */}
-        <div className="w-full md:w-72 bg-[#162032]/50 border-r border-[#334155] p-6 flex flex-col overflow-y-auto">
-          <h2 className="text-xs font-bold text-[#D97706] uppercase tracking-wider mb-4 flex items-center gap-2">配送團隊</h2>
-          
-          <form onSubmit={addTeamMember} className="mb-6">
-            <div className="flex gap-2">
-              <input 
-                type="text" 
-                value={newMemberName}
-                onChange={(e) => setNewMemberName(e.target.value)}
-                placeholder="輸入暱稱..."
-                className="flex-1 bg-[#0B1120] border border-[#334155] rounded-lg px-3 py-2 text-sm text-white focus:border-[#D97706] outline-none"
-              />
-              <button type="submit" className="bg-[#B45309] hover:bg-[#D97706] text-white px-3 rounded-lg transition-colors">
-                +
-              </button>
-            </div>
-          </form>
-
-          <div className="space-y-1 flex-1">
-            {supervisorTeam.length === 0 && <p className="text-xs text-slate-500 text-center py-4">尚無成員</p>}
-            {supervisorTeam.map(name => (
-              <div 
-                key={name}
-                onClick={() => selectMember(name)}
-                className={`group flex items-center justify-between p-3 rounded-lg cursor-pointer transition-all border ${supervisorTarget === name ? 'bg-[#334155] border-[#D97706] text-white' : 'border-transparent text-slate-400 hover:bg-[#334155]/50'}`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${supervisorTarget === name ? 'bg-[#D97706] text-black' : 'bg-[#0B1120] text-slate-500'}`}>
-                    {name.charAt(0)}
-                  </div>
-                  <span className="text-sm">{name}</span>
-                </div>
-                <button onClick={(e) => { e.stopPropagation(); removeTeamMember(name); }} className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400">
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Main Content */}
-        <div className="flex-1 p-6 md:p-10 overflow-y-auto bg-[#0B1120]">
-          {!supervisorTarget ? (
-            <div className="h-full flex flex-col items-center justify-center text-slate-600">
-              <TreePine className="w-12 h-12 mb-3 opacity-20" />
-              <p className="text-sm">請選擇夥伴以查看紀錄</p>
-            </div>
-          ) : (
-            <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
-              <div className="flex items-baseline justify-between border-b border-[#334155] pb-4">
-                <h2 className="text-xl font-bold text-slate-200 flex items-center gap-2">
-                  <span className="text-[#D97706]">{supervisorTarget}</span> 的日誌
-                </h2>
-                <span className="text-xs bg-[#334155] text-slate-300 px-2 py-1 rounded">Log: {targetLogs.length}</span>
-              </div>
-              
-              <div className="bg-[#162032] p-6 rounded-xl border border-[#334155] h-64 relative shadow-lg">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData}>
-                    <defs>
-                      <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#D97706" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#D97706" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
-                    <XAxis dataKey="date" stroke="#64748B" fontSize={10} tickLine={false} axisLine={false} />
-                    <RechartsTooltip 
-                      contentStyle={{ backgroundColor: '#162032', borderRadius: '8px', border: '1px solid #475569', color: '#F1F5F9', fontFamily: 'Noto Serif TC' }} 
-                      itemStyle={{ color: '#D97706' }}
-                    />
-                    <Area type="monotone" dataKey="score" stroke="#D97706" strokeWidth={2} fillOpacity={1} fill="url(#colorScore)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-
-              <div className="space-y-3">
-                  {targetLogs.map(log => (
-                    <div key={log.id} className="bg-[#162032]/50 p-4 rounded-lg border border-[#334155] flex items-center justify-between hover:bg-[#162032] transition-colors">
-                      <div className="flex items-center gap-4">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm ${log.moodScore >= 80 ? 'bg-red-900/50 text-red-200' : 'bg-slate-700/50 text-slate-400'}`}>
-                           {log.moodScore >= 80 ? '🎁' : '❄️'}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-slate-200 text-sm">{log.moodLabel}</span>
-                            <span className="text-[10px] text-slate-500">{log.timestamp.toLocaleString('zh-TW', { month: 'numeric', day: 'numeric' })}</span>
-                          </div>
-                          <div className="text-xs text-[#94A3B8] mt-1">{log.cardTitle}</div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-    );
-  };
-
   const WelcomeScreen = () => (
     <div className={`min-h-screen ${styles.bgGradient} flex flex-col items-center justify-center p-6 relative font-serif-tc`}>
       <SnowEffect />
-      <DemoBadge />
       <div className="absolute top-6 right-6 flex gap-3 z-10">
         <button onClick={() => setScreen('history')} className={`p-2.5 bg-[#162032] text-[#94A3B8] rounded-full hover:text-white hover:bg-[#334155] transition-all border border-[#334155]`} title="個人紀錄"><History className="w-4 h-4" /></button>
         <button onClick={handleLogout} className={`px-4 py-2 bg-[#162032] text-[#94A3B8] rounded-full hover:text-white hover:bg-[#334155] transition-all border border-[#334155] flex items-center gap-2 text-xs font-bold tracking-wider`} title="回到首頁">
@@ -612,7 +321,6 @@ export default function ChristmasSocialWorkerApp() {
   const CheckinScreen = () => (
     <div className={`min-h-screen ${styles.bgGradient} flex flex-col items-center justify-center p-4 font-serif-tc`}>
       <SnowEffect />
-      <DemoBadge />
       <div className="max-w-xl w-full relative z-10">
         <h2 className={`text-xl font-bold ${styles.textMain} mb-2 text-center text-shadow-sm`}>今晚的心情顏色？</h2>
         <p className={`${styles.textSub} mb-8 text-center text-sm font-light`}>誠實面對狀態，就是對自己最大的慈悲。</p>
@@ -637,7 +345,6 @@ export default function ChristmasSocialWorkerApp() {
   const DeckScreen = () => (
     <div className={`min-h-screen ${styles.bgGradient} flex flex-col items-center justify-center p-6 overflow-hidden relative font-serif-tc`}>
       <SnowEffect />
-      <DemoBadge />
       <div className="max-w-md w-full text-center space-y-8 z-10">
         <div className="animate-fade-in-up">
           <div className="inline-block px-3 py-1 rounded-full bg-[#334155]/80 backdrop-blur-sm border border-[#475569] text-[#94A3B8] text-[12px] tracking-widest uppercase mb-3">收到一則訊息</div>
@@ -692,7 +399,6 @@ export default function ChristmasSocialWorkerApp() {
     return (
     <div className={`min-h-screen ${styles.bg} flex flex-col items-center justify-center p-4 relative font-serif-tc`} key={currentCard?.title}>
       <SnowEffect />
-      <DemoBadge />
       <div className="absolute top-4 right-4 z-20">
          <button onClick={handleLogout} className="bg-[#162032]/80 backdrop-blur-sm px-4 py-2 rounded-full text-xs text-[#94A3B8] hover:text-white border border-[#334155] shadow-lg flex items-center gap-1 transition-all">
            <Home className="w-3 h-3" /> 
@@ -748,7 +454,6 @@ export default function ChristmasSocialWorkerApp() {
         </div>
       </div>
       
-      {/* 修正：按鈕恆定顯示，不隨翻轉隱藏 */}
       <div className={`mt-6 space-y-3 w-full max-w-sm transition-opacity duration-1000 z-10 ${showButtons ? 'opacity-100' : 'opacity-0'}`}>
         <button onClick={drawCard} className={`w-full py-3.5 rounded-xl bg-[#162032] text-[#94A3B8] font-bold border border-[#334155] hover:border-[#D97706] hover:text-[#D97706] transition-all flex items-center justify-center gap-2 shadow-lg text-sm tracking-wider`}>
           <RefreshCw className="w-4 h-4" />
@@ -766,12 +471,7 @@ export default function ChristmasSocialWorkerApp() {
   const WorkerHistoryScreen = () => {
     const [myLogs, setMyLogs] = useState([]);
     useEffect(() => {
-      // Offline Mode Handling
-      if (isDemo || !db || !user) {
-        // Show empty or mock data for user history in demo
-        return;
-      }
-      
+      if(!user || !db) return;
       const q = collection(db, 'artifacts', appId, 'public', 'data', 'mood_logs_clean');
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const logs = snapshot.docs.map(d => ({id:d.id, ...d.data(), timestamp: d.data().timestamp?.toDate() || new Date()}))
@@ -780,28 +480,19 @@ export default function ChristmasSocialWorkerApp() {
         setMyLogs(logs);
       });
       return () => unsubscribe();
-    }, [user, isDemo]);
+    }, [user]);
     const myChartData = myLogs.slice(0, 15).reverse().map(l => ({date: l.timestamp.toLocaleDateString(undefined, {month:'numeric', day:'numeric'}), score: l.moodScore}));
 
     return (
       <div className={`min-h-screen ${styles.bg} flex flex-col p-6 font-serif-tc`}>
-        <DemoBadge />
-        <div className="max-w-4xl w-full mx-auto space-y-6 mt-4">
+        <div className="max-w-4xl w-full mx-auto space-y-6">
           <div className="flex justify-between items-center mb-6 border-b border-[#334155] pb-4">
             <h2 className={`text-xl font-bold ${styles.textMain} flex items-center gap-2`}><BookOpen className="w-5 h-5 text-[#D97706]" /> 覺察足跡</h2>
             <div className="flex gap-2">
                 <button onClick={() => setScreen('welcome')} className={`${styles.textSub} hover:text-white text-xs`}>返回</button>
             </div>
           </div>
-          
-          {isDemo && (
-             <div className="p-8 text-center text-[#94A3B8] border border-dashed border-[#334155] rounded-xl bg-[#162032]/30">
-               <WifiOff className="w-8 h-8 mx-auto mb-2 opacity-50" />
-               <p>離線模式下無法查看歷史紀錄</p>
-             </div>
-          )}
-
-          {!isDemo && myLogs.length > 0 && (
+          {myLogs.length > 0 && (
             <div className={`p-6 rounded-xl shadow-lg h-64 bg-[#162032] border border-[#334155]`}>
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={myChartData}>
@@ -828,14 +519,13 @@ export default function ChristmasSocialWorkerApp() {
     );
   };
 
-  if (initError && !isDemo) return <div className="min-h-screen flex items-center justify-center bg-[#0B1120] text-slate-500 p-8 text-center text-sm font-light">連線中斷，請稍後再試</div>;
+  if (initError) return <div className="min-h-screen flex items-center justify-center bg-[#0B1120] text-slate-500 p-8 text-center text-sm font-light">連線中斷，請稍後再試</div>;
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-[#0B1120] text-[#D97706] font-bold animate-pulse text-sm tracking-widest">LOADING...</div>;
 
   return (
     <>
       <GlobalStyles />
       {screen === 'login' && <LoginScreen />}
-      {screen === 'supervisor' && <SupervisorScreen />}
       {screen === 'welcome' && <WelcomeScreen />}
       {screen === 'checkin' && <CheckinScreen />}
       {screen === 'deck' && <DeckScreen />}
